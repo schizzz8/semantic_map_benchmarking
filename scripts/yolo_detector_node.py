@@ -49,9 +49,9 @@ class YoloDetector:
         self.ts = message_filters.ApproximateTimeSynchronizer(
             [self.depth_image_sub, self.rgb_image_sub, self.rgb_info_sub, self.amcl_sub], 10, 0.1)
         self.ts.registerCallback(self.imageCallback)
-        self.model = yolo.load_net(bytes(os.path.join(model_path, '/scripts/yolo/darknet/cfg/yolo.2.0.cfg')),
-                                   bytes(os.path.join(model_path, '/scripts/yolo/yolo.2.0.weights')), 0)
-        self.meta = yolo.read_meta(os.path.join(model_path, '/scripts/yolo/darknet/data/coco.names'))
+        self.model = yolo.load_net(bytes(os.path.join(model_path, './scripts/yolo/darknet/cfg/yolo.2.0.cfg')),
+                                   bytes(os.path.join(model_path, './scripts/yolo/yolo.2.0.weights')), 0)
+        self.meta = yolo.read_meta(os.path.join(model_path, './scripts/yolo/darknet/data/coco.names'))
 
     def joyCallback(self, joy_data):
         if joy_data.buttons[0] == 1:
