@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(semantic_map_benchmarking)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+ add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -13,13 +13,33 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   semantic_map_extraction
   sensor_msgs
-  sm_simulation_robot
+  #sm_simulation_robot
   std_msgs
+  message_generation
+  gazebo_ros
 )
 
 find_package(OpenCV REQUIRED)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
+find_package(gazebo REQUIRED)
+
+link_directories(${GAZEBO_LIBRARY_DIRS})
+
+include_directories(
+  ${Boost_INCLUDE_DIR} 
+  ${catkin_INCLUDE_DIRS} 
+  ${GAZEBO_INCLUDE_DIRS}
+)
+
+add_library(logical_camera_plugin SHARED 
+  src/logical_camera_plugin.cpp src/logical_camera_plugin.h
+)
+
+target_link_libraries(logical_camera_plugin 
+  ${catkin_LIBRARIES} 
+  ${GAZEBO_LIBRARIES}
+)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -52,11 +72,11 @@ find_package(OpenCV REQUIRED)
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+ add_message_files(
+   FILES
+   Model.msg
+   LogicalCameraImage.msg
+ )
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -73,10 +93,12 @@ find_package(OpenCV REQUIRED)
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   sensor_msgs#   std_msgs
-# )
+ generate_messages(
+   DEPENDENCIES
+   std_msgs
+   geometry_msgs
+   sensor_msgs
+ )
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -110,7 +132,7 @@ find_package(OpenCV REQUIRED)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES semantic_map_benchmarking
-  CATKIN_DEPENDS cv_bridge roscpp rospy semantic_map_extraction sensor_msgs sm_simulation_robot std_msgs
+  CATKIN_DEPENDS cv_bridge roscpp rospy semantic_map_extraction sensor_msgs sm_simulation_robot std_msgs message_runtime gazebo_ros
 #  DEPENDS system_lib
 )
 

@@ -1,7 +1,7 @@
 #include "ros/ros.h"
 
 #include "sensor_msgs/Joy.h"
-#include <sm_simulation_robot/LogicalCameraImage.h>
+#include "semantic_map_benchmarking/LogicalCameraImage.h"
 #include "semantic_map_extraction/Obs.h"
 #include "std_msgs/String.h"
 
@@ -24,7 +24,7 @@ void joyCallback(const sensor_msgs::Joy::ConstPtr& msg) {
     }
 }
 
-void logicalImageCallback(const sm_simulation_robot::LogicalCameraImage::ConstPtr& msg){
+void logicalImageCallback(const semantic_map_benchmarking::LogicalCameraImage::ConstPtr& msg){
     if(enable){
 
         cerr << "Detected models: " << endl;
