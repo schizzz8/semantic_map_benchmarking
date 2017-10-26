@@ -1,0 +1,12 @@
+<launch>
+
+  <!-- Joy -->
+  <node pkg="joy" type="joy_node" name="joy_node" output="screen"/>
+
+  <!-- Ground truth publisher -->
+  <node pkg="semantic_map_benchmarking" type="ground_truth_publisher_node" name="ground_truth_publisher" output="screen" >
+    <param name="label_topic" type="string" value="/ASR"/>
+    <param name="obs_topic" type="string" value="/ObservationTopic"/>
+  </node>
+
+</launch>
