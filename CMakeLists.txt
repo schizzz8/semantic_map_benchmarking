@@ -1,13 +1,33 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(semantic_map_benchmarking)
 
-## Compile as C++11, supported in ROS Kinetic and newer
- add_compile_options(-std=c++11)
+#set the default path for built executables to the "bin" directory
+set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
+#set the default path for built libraries to the "lib" directory
+set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
+
+# To uncomment in the future
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --std=gnu++11")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+
+
+find_package(srrg_cmake_modules REQUIRED)
+set(CMAKE_MODULE_PATH ${srrg_cmake_modules_INCLUDE_DIRS})
+
+set(CMAKE_BUILD_TYPE Release)
+
+message(STATUS "PROCESSOR_TYPE: [${CMAKE_HOST_SYSTEM_PROCESSOR}]")
+if (${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES armv7l)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -funsafe-math-optimizations")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -funsafe-math-optimizations")
+  message("ENABLING ARM NEON OPTIMIZATIONS")
+endif ()
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
+  srrg_core
   cv_bridge
   roscpp
   rospy
@@ -17,7 +37,13 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   message_generation
   gazebo_ros
+  pcl_conversions
+  pcl_ros
 )
+
+# Find Eigen3
+find_package(Eigen3 REQUIRED)
+include_directories(${EIGEN3_INCLUDE_DIR})
 
 find_package(OpenCV REQUIRED)
 ## System dependencies are found with CMake's conventions
@@ -132,7 +158,19 @@ target_link_libraries(logical_camera_plugin
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES semantic_map_benchmarking
-  CATKIN_DEPENDS cv_bridge roscpp rospy semantic_map_extraction sensor_msgs sm_simulation_robot std_msgs message_runtime gazebo_ros
+  CATKIN_DEPENDS
+  cv_bridge
+  roscpp
+  rospy
+  semantic_map_extraction
+  sensor_msgs
+  sm_simulation_robot
+  std_msgs
+  message_runtime
+  gazebo_ros
+  srrg_core
+  pcl_conversions
+  pcl_ros
 #  DEPENDS system_lib
 )
 
@@ -181,6 +219,16 @@ target_link_libraries(ground_truth_publisher_node
   ${catkin_LIBRARIES}
 )
 
+
+add_executable(training_set_generator_node src/training_set_generator_node.cpp)
+target_link_libraries(training_set_generator_node
+  ${catkin_LIBRARIES}
+)
+
+add_executable(bounding_box_visualizer_node src/bounding_box_visualizer_node.cpp)
+target_link_libraries(bounding_box_visualizer_node
+  ${catkin_LIBRARIES}
+)
 #############
 ## Install ##
 #############

@@ -41,6 +41,9 @@ void LogicalCameraPlugin::OnUpdate(){
     if (!scene || !scene->Initialized())
       return;
 
+    msg.header.stamp = ros::Time::now();
+    msg.header.frame_id = "logical_camera_link";
+
     msg.pose.position.x = logical_image.pose().position().x();
     msg.pose.position.y = logical_image.pose().position().y();
     msg.pose.position.z = logical_image.pose().position().z();
@@ -54,7 +57,7 @@ void LogicalCameraPlugin::OnUpdate(){
     for(int i=0; i < number_of_models; i++){
         semantic_map_benchmarking::Model model_msg;
 
-        if (logical_image.model(i).name() == "ipa-apartment" || logical_image.model(i).name() == "ground_plane"
+        if (logical_image.model(i).name() == "small_apartment" || logical_image.model(i).name() == "ground_plane"
             || logical_image.model(i).name() == "")
           continue;
 
@@ -78,6 +81,23 @@ void LogicalCameraPlugin::OnUpdate(){
         model_msg.size.y = bounding_box.GetYLength();
         model_msg.size.z = bounding_box.GetZLength();
 
+	model_msg.min.x = bounding_box.GetCenter().x - bounding_box.GetSize().x/2.0;
+	model_msg.min.y = bounding_box.GetCenter().y - bounding_box.GetSize().y/2.0;
+	model_msg.min.z = bounding_box.GetCenter().z - bounding_box.GetSize().z/2.0;
+	
+	model_msg.max.x = bounding_box.GetCenter().x + bounding_box.GetSize().x/2.0;
+	model_msg.max.y = bounding_box.GetCenter().y + bounding_box.GetSize().y/2.0;
+	model_msg.max.z = bounding_box.GetCenter().z + bounding_box.GetSize().z/2.0;
+	
+	
+//        model_msg.min.x = bounding_box.min.x;
+//        model_msg.min.y = bounding_box.min.y;
+//        model_msg.min.z = bounding_box.min.z;
+//        
+//        model_msg.max.x = bounding_box.max.x;
+//        model_msg.max.y = bounding_box.max.y;
+//        model_msg.max.z = bounding_box.max.z;
+        
         model_msg.type = logical_image.model(i).name();
 
         msg.models.push_back(model_msg);
