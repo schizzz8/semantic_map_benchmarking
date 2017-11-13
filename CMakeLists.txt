@@ -229,6 +229,12 @@ add_executable(bounding_box_visualizer_node src/bounding_box_visualizer_node.cpp
 target_link_libraries(bounding_box_visualizer_node
   ${catkin_LIBRARIES}
 )
+
+add_executable(image_labeler_node src/image_labeler_node.cpp)
+target_link_libraries(image_labeler_node
+  ${catkin_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############
