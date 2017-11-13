@@ -53,7 +53,9 @@
   <build_depend>srrg_core</build_depend>
   <build_depend>pcl_conversions</build_depend>
   <build_depend>pcl_ros</build_depend>
+  <build_depend>image_transport</build_depend>
 
+  <run_depend>image_transport</run_depend>
   <run_depend>pcl_conversions</run_depend>
   <run_depend>pcl_ros</run_depend>
   <run_depend>srrg_core</run_depend>

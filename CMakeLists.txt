@@ -39,6 +39,7 @@ find_package(catkin REQUIRED COMPONENTS
   gazebo_ros
   pcl_conversions
   pcl_ros
+  image_transport
 )
 
 # Find Eigen3
@@ -171,6 +172,7 @@ catkin_package(
   srrg_core
   pcl_conversions
   pcl_ros
+  image_transport
 #  DEPENDS system_lib
 )
 
