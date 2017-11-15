@@ -1,4 +1,6 @@
 #include <iostream>
+#include <sstream>
+#include <fstream>
 #include <ros/ros.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <Eigen/Core>
@@ -25,38 +27,60 @@
 #include <pcl/common/common.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/passthrough.h>
-#include <message_filters/subscriber.h>
-#include <message_filters/synchronizer.h>
-#include <message_filters/sync_policies/approximate_time.h>
 #include <gazebo_msgs/SetModelState.h>
+#include <gazebo_msgs/ModelState.h>
 
 using namespace std;
 using namespace srrg_core;
-using namespace message_filters;
 using namespace semantic_map_benchmarking;
 
 typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
 
+
+constexpr unsigned int str2int(const char* str, int h = 0){
+  return !str[h] ? 5381 : (str2int(str, h+1) * 33) ^ str[h];
+}
+
+int object2id(std::string object){
+  switch (str2int(object.c_str())){
+  case str2int("table"):
+    return 1;
+  case str2int("chair"):
+    return 2;
+  case str2int("bookcase"):
+    return 3;
+  case str2int("couch"):
+    return 4;
+  case str2int("cabinet"):
+    return 5;
+  case str2int("plant"):
+    return 6;
+  default:
+    return 0;
+  }
+
+}
+
 class TrainingSetGenerator {
+  
 public:
-  TrainingSetGenerator ():
-    _logical_image_sub (_nh,"/gazebo/logical_camera_image",1),
-    _depth_cloud_sub (_nh,"/camera/depth/points",1),
-    _rgb_image_sub (_nh,"/camera/rgb/image_raw", 1),
-    _synchronizer (FilterSyncPolicy (10),_logical_image_sub,_depth_cloud_sub,_rgb_image_sub){
-    
+  TrainingSetGenerator (){
+
+    _got_map = false;
     _occ_threshold = 60;
     _free_threshold = 240;
     _map_sub = _nh.subscribe ("/map", 1000, &TrainingSetGenerator::mapCallback, this);
 
     _got_info = false;
-    _camera_info_sub = _nh.subscribe ("/camera/depth/camera_info",
+    _camera_info_sub = _nh.subscribe ("/camera/rgb/camera_info",
 				      1000,
 				      &TrainingSetGenerator::cameraInfoCallback,
 				      this);
 
-    _synchronizer.registerCallback (boost::bind (&TrainingSetGenerator::filterCallback, this, _1, _2, _3));
-    _set_model_state_client = _nh.serviceClient<gazebo_msgs::SetModelState> ("set_model_state");
+    _set_model_state_client = _nh.serviceClient<gazebo_msgs::SetModelState> ("/gazebo/set_model_state");
+
+    _seq = 1;
+    ROS_INFO("Starting training set generator node!");
   }
 
   void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& map_msg){
@@ -86,11 +110,12 @@ public:
 	}
 
     IntImage indices_image;
-    grayMap2indices(indices_image, map_image, _occ_threshold, _free_threshold);
+    grayMap2indices (indices_image, map_image, _occ_threshold, _free_threshold);
     float safety_region = 1.0f;
-    indices2distances(_distance_image, indices_image, _resolution, safety_region);
+    indices2distances (_distance_image, indices_image, _resolution, safety_region);
+    ROS_INFO ("Distance map computed.");
     
-    _overlay_resolution = 1.0f;
+    _overlay_resolution = 5.0f;
     float ratio = _resolution/_overlay_resolution;
     
     _overlay_origin = Eigen::Vector2f (map_msg->info.origin.position.x,
@@ -98,6 +123,11 @@ public:
     
     _overlay_size = Eigen::Vector2i (floor(width*ratio),
 				     floor(height*ratio));
+    ROS_INFO ("Defining overlay grid with following parameters:");
+    cerr << "\t>> resolution: " << _overlay_resolution << endl;
+    cerr << "\t>> size: " << _overlay_size.transpose() << endl;
+    cerr << "\t>> origin: " << _overlay_origin.transpose() << endl;
+    
     _got_map = true;
     _map_sub.shutdown();
 
@@ -129,68 +159,144 @@ public:
     _camera_info_sub.shutdown();
   }
 
-  void filterCallback(const semantic_map_benchmarking::LogicalCameraImage::ConstPtr& logical_image_msg,
-		      const PointCloud::ConstPtr& scene_cloud_msg,
-		      const sensor_msgs::Image::ConstPtr& rgb_image_msg){
-    if(_got_info){
-      
-      cv_bridge::CvImageConstPtr rgb_cv_ptr;
-      try{
-	rgb_cv_ptr = cv_bridge::toCvShare(rgb_image_msg);
-      } catch (cv_bridge::Exception& e) {
-	ROS_ERROR("cv_bridge exception: %s", e.what());
-	return;
-      }
-
-      _rgb_image = rgb_cv_ptr->image.clone();
-      
-      tf::StampedTransform depth_camera_pose;
-      try {
-	_listener.waitForTransform("map",
-				   "camera_depth_optical_frame",
-				   ros::Time(0),
-				   ros::Duration(3));
-	_listener.lookupTransform("map",
-				  "camera_depth_optical_frame",
-				  ros::Time(0),
-				  depth_camera_pose);
-      }
-      catch(tf::TransformException ex) {
-	ROS_ERROR("%s", ex.what());
-      }
-
-      Eigen::Isometry3f depth_camera_transform = tfTransform2eigen(depth_camera_pose);
-      pcl::transformPointCloud (*scene_cloud_msg, _map_cloud, depth_camera_transform);
-      _map_cloud.header.frame_id = "/map";
-      _map_cloud.width  = scene_cloud_msg->width;
-      _map_cloud.height = scene_cloud_msg->height;
-      _map_cloud.is_dense = false;
-
-      _logical_image = *logical_image_msg;
-    }
-    
-  }
-
-
   void generate(){
-    int i=0;
-    int j=0;
+    bool stop=false;
+    ros::Rate loop_rate(1);
+    
+    while(_nh.ok() && !stop){
 
-    while(_nh.ok()){
+      if(_got_map && _got_info){
 
-      if(isFree(i,j)){
-	gazebo_msgs::SetModelState srv;
+	for(int i=0; i<_overlay_size.x(); i++)
+	  for(int j=0; j<_overlay_size.y(); j++){
+	    
+	    if(isFree(i,j)){
 
-	if(_set_model_state_client.call(srv)){
-	  ROS_INFO("response");
-	} else {
-	  ROS_ERROR("Failed to call service set_model_state");
-	  return;
-	}
-	
-      }
-      
-    }
+	      //set robot pose
+	      cerr << "Setting robot pose to: ("
+		   << _overlay_origin.x() + i*_overlay_resolution << ","
+		   << _overlay_origin.y() + j*_overlay_resolution << ")" << endl;
+	      
+	      gazebo_msgs::SetModelState set_model_state;
+
+	      gazebo_msgs::ModelState model_state;
+	      model_state.model_name = "robot";
+	      model_state.reference_frame = "map";
+
+	      geometry_msgs::Pose pose;
+	      pose.position.x = _overlay_origin.x() + i*_overlay_resolution;
+	      pose.position.y = _overlay_origin.y() + j*_overlay_resolution;
+	      pose.position.z = 0;
+	      model_state.pose = pose;
+
+	      set_model_state.request.model_state = model_state;
+	      
+	      if(_set_model_state_client.call(set_model_state)){
+		ROS_INFO("DONE!!!");
+	      } else {
+		ROS_ERROR("Failed to call service set_model_state: %s",set_model_state.response.status_message);
+		return;
+	      }
+
+	      //receive messages
+	      cv::Mat rgb_image;
+	      PointCloud point_cloud;
+	      LogicalCameraImage logical_image;
+
+	      cerr << "rgb: " << receiveRgbImageMsg("/camera/rgb/image_raw",1,rgb_image) << endl;
+	      cerr << "cloud: " << receivePointCloudMsg("/camera/depth/points",1,point_cloud) << endl;
+	      cerr << "logical: " << receiveLogicalImageMsg("/gazebo/logical_camera_image",1,logical_image) << endl;
+	      
+	      if(receiveRgbImageMsg("/camera/rgb/image_raw",1,rgb_image) &&
+		 receivePointCloudMsg("/camera/depth/points",1,point_cloud) &&
+		 receiveLogicalImageMsg("/gazebo/logical_camera_image",1,logical_image)){
+
+		if(logical_image.models.size() > 0){
+
+		  //save image
+		  stringstream ss;
+		  ss << std::setw(6) << std::setfill('0') << _seq;
+		  string filename = ss.str();
+		  cv::imwrite(filename+".png",rgb_image);
+		  cerr << "Saving image: " << filename+".png" << endl;
+
+		  //open file to store detected objects
+		  ofstream file;
+		  file.open(filename+".txt");
+            
+		  tf::StampedTransform logical_camera_pose;
+		  tf::poseMsgToTF(logical_image.pose,logical_camera_pose);
+		
+		  for (int idx=0; idx<logical_image.models.size(); ++idx){
+
+		    //compute model bounding box
+		    tf::Transform model_pose;
+		    tf::poseMsgToTF(logical_image.models.at(idx).pose,model_pose);
+		    Eigen::Isometry3f model_transform = tfTransform2eigen(logical_camera_pose)*tfTransform2eigen(model_pose);
+		    pcl::PointXYZ min_pt,max_pt;
+		    modelBoundingBox(logical_image.models.at(idx).min,
+				     logical_image.models.at(idx).max,
+				     model_transform,
+				     min_pt,
+				     max_pt);
+
+		    //extract points that fall in the model bounding box
+		    PointCloud::Ptr cloud_filtered_xyz (new PointCloud ());
+		    filterPointCloud(point_cloud.makeShared(),
+				     min_pt,
+				     max_pt,
+				     cloud_filtered_xyz);
+
+		    //compute model bounding box in the rgb image
+		    if(!cloud_filtered_xyz->points.empty()){
+		      string object_type = logical_image.models.at(idx).type;
+		      string object = object_type.substr(0,object_type.find_first_of("_"));
+
+		      cv::Point2i p_min(10000,10000);
+		      cv::Point2i p_max(-10000,-10000);
+	  
+		      for(int jdx=0; jdx<cloud_filtered_xyz->points.size(); ++jdx){
+			Eigen::Vector3f camera_point = _depth_camera_transform.inverse()*
+			  Eigen::Vector3f(cloud_filtered_xyz->points[jdx].x,
+					  cloud_filtered_xyz->points[jdx].y,
+					  cloud_filtered_xyz->points[jdx].z);
+			Eigen::Vector3f image_point = _K*camera_point;
+
+			const float& z=image_point.z();
+			image_point.head<2>()/=z;
+			int r = image_point.x();
+			int c = image_point.y();
+
+			if(r < p_min.x)
+			  p_min.x = r;
+			if(r > p_max.x)
+			  p_max.x = r;
+
+			if(c < p_min.y)
+			  p_min.y = c;
+			if(c > p_max.y)
+			  p_max.y = c;
+
+		      }//for cloud_filtered points
+		    
+		      file << object2id(object) << " ";
+		      file << p_min.x << " " << p_min.y << " ";
+		      file << p_max.x-p_min.x << " " << p_max.y-p_min.y << endl;
+		    }// if cloud_filtered not empty
+		  }//for models
+		  file.close();
+		  _seq++;
+		}//if models not empty
+	      }//if receive messages
+	    }//if isfree
+	    ros::spinOnce();
+	    loop_rate.sleep();
+	  }// for i,j
+	stop=true;
+      }// if got_map and got_info
+      ros::spinOnce();
+      loop_rate.sleep();
+    }//while ros ok and not stop
   }
   
 private:
@@ -213,16 +319,14 @@ private:
   bool _got_info;
 
   tf::TransformListener _listener;
-  message_filters::Subscriber<LogicalCameraImage> _logical_image_sub;
-  message_filters::Subscriber<PointCloud> _depth_cloud_sub;
-  message_filters::Subscriber<sensor_msgs::Image> _rgb_image_sub;
-  typedef sync_policies::ApproximateTime<LogicalCameraImage,PointCloud,sensor_msgs::Image> FilterSyncPolicy;
-  message_filters::Synchronizer<FilterSyncPolicy> _synchronizer;
+  Eigen::Isometry3f _depth_camera_transform;
 
   cv::Mat _rgb_image;
   PointCloud _map_cloud;
   LogicalCameraImage _logical_image;
   ros::ServiceClient _set_model_state_client;
+
+  int _seq;
   
   Eigen::Isometry3f tfTransform2eigen(const tf::Transform& p){
     Eigen::Isometry3f iso;
@@ -246,15 +350,133 @@ private:
     int r = (x - _origin.x())/_resolution;
     int c = (y - _origin.y())/_resolution;
 
-    return (_distance_image.at<float>(r,c) > 0.8);
+    cerr << "Distance map at (" << i << "," << j << "): " << _distance_image.at<float>(r,c) << endl;
+
+    return (_distance_image.at<float>(r,c) > 0.3);
   }
 
-  
+  bool receiveRgbImageMsg(const std::string& topic, float duration, cv::Mat& rgb_image){
+    boost::shared_ptr<sensor_msgs::Image const> rgb_image_msg_ptr;
+    rgb_image_msg_ptr = ros::topic::waitForMessage<sensor_msgs::Image> (topic, ros::Duration (duration));
+    if(rgb_image_msg_ptr == NULL){
+      ROS_ERROR ("No RGB image message received!!!");
+      return false;
+    }else{
+      cv_bridge::CvImageConstPtr rgb_cv_ptr;
+      try{
+	rgb_cv_ptr = cv_bridge::toCvShare(rgb_image_msg_ptr);
+      } catch (cv_bridge::Exception& e) {
+	ROS_ERROR ("cv_bridge exception: %s", e.what());
+	return false;
+      }
+      rgb_image = rgb_cv_ptr->image.clone();
+      return true;
+    }
+  }
+
+  bool receivePointCloudMsg(const std::string& topic, float duration, PointCloud& point_cloud){
+    boost::shared_ptr<PointCloud const> point_cloud_msg_ptr;
+    point_cloud_msg_ptr = ros::topic::waitForMessage<PointCloud> (topic, ros::Duration (duration));
+    if(point_cloud_msg_ptr == NULL){
+      ROS_ERROR ("No point cloud message received!!!");
+      return false;
+    }else{
+      tf::StampedTransform depth_camera_pose;
+      try {
+	_listener.waitForTransform("map",
+				   "camera_depth_optical_frame",
+				   ros::Time(0),
+				   ros::Duration(3));
+	_listener.lookupTransform("map",
+				  "camera_depth_optical_frame",
+				  ros::Time(0),
+				  depth_camera_pose);
+      }catch(tf::TransformException ex) {
+	ROS_ERROR("%s", ex.what());
+	return false;
+      }
+      _depth_camera_transform = tfTransform2eigen(depth_camera_pose);
+      pcl::transformPointCloud (*point_cloud_msg_ptr, point_cloud, _depth_camera_transform);
+      point_cloud.header.frame_id = "/map";
+      point_cloud.width  = point_cloud_msg_ptr->width;
+      point_cloud.height = point_cloud_msg_ptr->height;
+      point_cloud.is_dense = false;
+      return true;
+    }
+  }
+
+  bool receiveLogicalImageMsg(const std::string& topic, float duration, LogicalCameraImage& logical_image){
+    boost::shared_ptr<LogicalCameraImage const> logical_image_msg_ptr;
+    logical_image_msg_ptr = ros::topic::waitForMessage<LogicalCameraImage> (topic, ros::Duration (duration));
+    if(logical_image_msg_ptr == NULL){
+      ROS_ERROR ("No logical image message received!!!");
+      return false;
+    }else{
+      logical_image = *logical_image_msg_ptr;
+      return true;
+    }
+  }
+
+  void modelBoundingBox(const geometry_msgs::Vector3& min,
+			const geometry_msgs::Vector3& max,
+			const Eigen::Isometry3f& model_transform,
+			pcl::PointXYZ& min_pt,
+			pcl::PointXYZ& max_pt){
+    
+    float x_range = max.x-min.x;
+    float y_range = max.y-min.y;
+    float z_range = max.z-min.z;
+
+    PointCloud::Ptr model_cloud (new PointCloud ());
+    for(int kk=0; kk <= 1; kk++)
+      for(int jj=0; jj <= 1; jj++)
+	for(int ii=0; ii <= 1; ii++){
+	  model_cloud->points.push_back (pcl::PointXYZ(min.x + ii*x_range,
+						       min.y + jj*y_range,
+						       min.z + kk*z_range));
+	}
+
+    PointCloud::Ptr transformed_model_cloud (new PointCloud ());
+    
+    pcl::transformPointCloud (*model_cloud, *transformed_model_cloud, model_transform);
+
+    pcl::getMinMax3D(*transformed_model_cloud,min_pt,max_pt);
+
+  }
+
+  void filterPointCloud(const PointCloud::ConstPtr& point_cloud,
+			const pcl::PointXYZ& min_pt,
+			const pcl::PointXYZ& max_pt,
+			PointCloud::Ptr& cloud_filtered_xyz){
+    
+    PointCloud::Ptr cloud_filtered_x (new PointCloud ());
+    PointCloud::Ptr cloud_filtered_xy (new PointCloud ());
+    
+    pcl::PassThrough<pcl::PointXYZ> pass;
+    pass.setInputCloud (point_cloud);
+    pass.setFilterFieldName ("x");
+    pass.setFilterLimits (min_pt.x,max_pt.x);
+    pass.filter (*cloud_filtered_x);
+	    
+    pass.setInputCloud (cloud_filtered_x);
+    pass.setFilterFieldName ("y");
+    pass.setFilterLimits (min_pt.y,max_pt.y);
+    pass.filter (*cloud_filtered_xy);
+	    
+    pass.setInputCloud (cloud_filtered_xy);
+    pass.setFilterFieldName ("z");
+    pass.setFilterLimits (min_pt.z,max_pt.z);
+    pass.filter (*cloud_filtered_xyz);
+
+  }
+
+
 };
 
 int main(int argc, char** argv){
   ros::init(argc,argv,"training_set_generator");
   TrainingSetGenerator generator;
+  generator.generate();
   ros::spin();
   return 0;
 }
