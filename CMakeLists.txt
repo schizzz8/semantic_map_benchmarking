@@ -237,6 +237,12 @@ target_link_libraries(image_labeler_node
   ${catkin_LIBRARIES}
 )
 
+add_executable(manual_training_set_generator_node src/manual_training_set_generator_node.cpp)
+target_link_libraries(manual_training_set_generator_node
+  ${catkin_LIBRARIES}
+)
+
+
 #############
 ## Install ##
 #############

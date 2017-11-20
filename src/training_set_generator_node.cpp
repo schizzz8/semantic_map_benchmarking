@@ -203,10 +203,6 @@ public:
 	      PointCloud point_cloud;
 	      LogicalCameraImage logical_image;
 
-	      cerr << "rgb: " << receiveRgbImageMsg("/camera/rgb/image_raw",1,rgb_image) << endl;
-	      cerr << "cloud: " << receivePointCloudMsg("/camera/depth/points",1,point_cloud) << endl;
-	      cerr << "logical: " << receiveLogicalImageMsg("/gazebo/logical_camera_image",1,logical_image) << endl;
-	      
 	      if(receiveRgbImageMsg("/camera/rgb/image_raw",1,rgb_image) &&
 		 receivePointCloudMsg("/camera/depth/points",1,point_cloud) &&
 		 receiveLogicalImageMsg("/gazebo/logical_camera_image",1,logical_image)){
