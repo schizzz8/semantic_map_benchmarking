@@ -37,24 +37,19 @@ constexpr unsigned int str2int(const char* str, int h = 0){
 
 int object2id(std::string object){
   switch (str2int(object.c_str())){
-  case str2int("table"):
-    return 0;
   case str2int("chair"):
-    return 0;
-  case str2int("bookcase"):
-    return 2;
-  case str2int("couch"):
-    return 3;
-  case str2int("cabinet"):
-    return 4;
-  case str2int("plant"):
-    return 5;
-  case str2int("bed"):
-    return 6;
-  case str2int("tv"):
-    return 7;
-  default:
     return 8;
+  case str2int("table"):
+    return 10;
+  case str2int("plant"):
+    return 15;
+  case str2int("tv"):
+    return 19;
+  case str2int("couch"):
+    return 17;
+  default:
+    return 20;
+
   }
 
 }
@@ -136,8 +131,8 @@ public:
       stringstream ss;
       ss << std::setw(6) << std::setfill('0') << _seq;
       string filename = ss.str();
-      cv::imwrite(filename+".png",rgb_image);
-      cerr << "Saving image: " << filename+".png" << endl;
+      cv::imwrite(filename+".jpg",rgb_image);
+      cerr << "Saving image: " << filename+".jpg" << endl;
 
       //open file to store detected objects
       ofstream file;
@@ -260,9 +255,14 @@ public:
 	    // 	       1,
 	    // 	       cv::Scalar(255,0,0));
 	  }//for cloud_filtered points
+	  float abs_x = (float)(p_min.y+p_max.y)/2.0f;
+	  float abs_y = (float)(p_min.x+p_max.x)/2.0f;
+	  float abs_w = (float)(p_max.y-p_min.y);
+	  float abs_h = (float)(p_max.x-p_min.x);
+	  
 	  file << object2id(object) << " ";
-	  file << (float)p_min.x/(float)cols << " " << (float)(rows-p_max.y)/(float)rows << " ";
-	  file << (float)(p_max.x-p_min.x)/(float)cols << " " << (float)(p_max.y-p_min.y)/(float)rows << endl;
+	  file << abs_x/(float)cols << " " << abs_y/(float)rows << " ";
+	  file << abs_w/(float)cols << " " << abs_h/(float)rows << endl;
 
 	  // cv::rectangle(rgb_image,
 	  // 		p_min,
